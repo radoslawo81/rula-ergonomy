@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ocena ergonomii stanowiska (RULA)</title>
+<style>
+  :root {
+    --bg: #12141a;
+    --panel: #1c1f27;
+    --panel-2: #232733;
+    --text: #e8e9ec;
+    --muted: #9aa0ab;
+    --accent: #4f8cff;
+    --border: #2c3040;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 2fr) minmax(220px, 1fr) minmax(280px, 1fr);
+    gap: 16px;
+    padding: 16px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .video-wrap img {
+    width: 100%; border-radius: 8px; display: block; background: #000;
+    aspect-ratio: 4/3; object-fit: cover;
+  }
+  .score-big {
+    font-size: 56px; font-weight: 700; line-height: 1;
+  }
+  .risk-pill {
+    display: inline-block; padding: 4px 12px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; margin-top: 6px;
+  }
+  table.breakdown { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  table.breakdown td { padding: 4px 0; border-bottom: 1px solid var(--border); }
+  table.breakdown td:last-child { text-align: right; font-weight: 600; }
+  .angles-card h2 { font-size: 13px; margin: 0 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  table.angles { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }
+  table.angles td { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  table.angles td:first-child { color: var(--muted); }
+  table.angles td:last-child { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .angles-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .controls label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .controls select, .controls input[type=range] { width: 100%; }
+  .controls .row { display: flex; align-items: center; gap: 8px; }
+  .note {
+    font-size: 11.5px; color: var(--muted); margin-top: 10px; line-height: 1.5;
+    border-top: 1px solid var(--border); padding-top: 10px;
+  }
+  #error-banner {
+    display: none; background: #5c1f1f; color: #ffd7d7; padding: 8px 12px;
+    border-radius: 6px; margin-bottom: 10px; font-size: 13px;
+  }
+  canvas#chart { width: 100%; height: 140px; display: block; }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Ocena ergonomii stanowiska — RULA</h1>
+    <div class="sub">Praca stojąca · YOLOv8-Pose + wektorowa analiza kątów</div>
+  </div>
+  <div class="sub" id="static-timer">Postawa statyczna: 0 s</div>
+</header>
+
+<div class="layout">
+  <div class="card video-wrap">
+    <div id="error-banner"></div>
+    <img src="/video_feed" alt="Podgląd kamery">
+    <div class="legend">
+      <span><span class="dot" style="background:#2e7d32"></span>1-2 OK</span>
+      <span><span class="dot" style="background:#f9a825"></span>3-4 obserwuj</span>
+      <span><span class="dot" style="background:#ef6c00"></span>5-6 dzialaj wkrotce</span>
+      <span><span class="dot" style="background:#c62828"></span>7 dzialaj natychmiast</span>
+    </div>
+  </div>
+
+  <div class="card angles-card">
+    <h2>Kąty ciała (pomiar na żywo)</h2>
+    <table class="angles" id="angles-table"></table>
+    <div class="angles-sub">Strona oceniana: <span id="angles-side">–</span></div>
+  </div>
+
+  <div class="card">
+    <div class="score-big" id="score-value" style="color:#4f8cff">–</div>
+    <div class="risk-pill" id="risk-pill" style="background:#333">brak danych</div>
+
+    <table class="breakdown" id="breakdown"></table>
+
+    <div class="angles-sub" style="margin-top:12px;">Wynik RULA w czasie (skala 1–7)</div>
+    <canvas id="chart" width="600" height="140"></canvas>
+
+    <div class="controls">
+      <label>Kamera</label>
+      <select id="camera-select"></select>
+
+      <label>Strona ciała oceniana</label>
+      <select id="side-select">
+        <option value="auto">Automatycznie</option>
+        <option value="left">Lewa</option>
+        <option value="right">Prawa</option>
+      </select>
+
+      <label>Ocena siły / obciążenia (Force Score, 0-3)</label>
+      <input type="range" id="force-range" min="0" max="3" step="1" value="0">
+      <div class="sub" id="force-label">0 — obciążenie ≤ 2 kg, przerywane</div>
+
+      <label class="row">
+        <input type="checkbox" id="legs-ok" checked>
+        <span>Zakładaj równomierne obciążenie nóg, gdy detekcja niepewna</span>
+      </label>
+    </div>
+
+    <div class="note">
+      Ograniczenia: ocena nadgarstka i skrętu nadgarstka nie są mierzalne z estymacji
+      pozy (brak punktów dłoni) i przyjmowane są jako neutralne. Kąt tułowia i szyi jest
+      przybliżony i najdokładniejszy, gdy kamera patrzy na osobę z boku (profil).
+      Ocena siły/obciążenia wymaga ręcznego ustawienia powyżej. "Muscle use" (+1) jest
+      dodawane automatycznie po ok. 60 s utrzymywania zbliżonej postawy.
+    </div>
+  </div>
+</div>
+
+<script>
+const FORCE_LABELS = [
+  "0 — obciążenie ≤ 2 kg, przerywane",
+  "1 — 2-10 kg, przerywane",
+  "2 — 2-10 kg, statyczne lub powtarzalne",
+  "3 — ≥10 kg statyczne/powtarzalne lub gwałtowne obciążenie",
+];
+
+const LABELS = {
+  upper_arm: "Ramię (upper arm)",
+  lower_arm: "Przedramię (lower arm)",
+  wrist: "Nadgarstek (neutralny)",
+  neck: "Szyja",
+  trunk: "Tułów",
+  legs: "Nogi",
+};
+
+let history = [];
+
+const SIDE_LABELS = { left: "lewa", right: "prawa" };
+
+function fmtAngle(v) {
+  return (v === null || v === undefined) ? "–" : `${v.toFixed(0)}°`;
+}
+
+function renderAngles(angles) {
+  const tbl = document.getElementById("angles-table");
+  const sideEl = document.getElementById("angles-side");
+  if (!angles) {
+    tbl.innerHTML = "<tr><td>Brak danych</td><td>–</td></tr>";
+    sideEl.textContent = "–";
+    return;
+  }
+  sideEl.textContent = SIDE_LABELS[angles.side] || angles.side || "–";
+  const legsText = angles.legs_balanced === null || angles.legs_balanced === undefined
+    ? "brak danych"
+    : (angles.legs_balanced ? "zrównoważone" : "niezrównoważone");
+  const rows = [
+    ["Ramię (upper arm)", fmtAngle(angles.upper_arm_angle)],
+    ["Przedramię (lower arm)", fmtAngle(angles.lower_arm_angle)],
+    ["Nadgarstek", "neutralny*"],
+    ["Szyja", fmtAngle(angles.neck_angle)],
+    ["Tułów", fmtAngle(angles.trunk_angle)],
+    ["Nogi", legsText],
+  ];
+  tbl.innerHTML = rows.map(([label, val]) =>
+    `<tr><td>${label}</td><td>${val}</td></tr>`).join("");
+  tbl.innerHTML += `<tr><td colspan="2" style="font-size:10.5px; color:var(--muted); border-bottom:none; padding-top:8px;">*niemierzalny z pozy (brak punktów dłoni) — patrz README</td></tr>`;
+}
+
+async function loadCameras() {
+  try {
+    const res = await fetch("/api/cameras");
+    const data = await res.json();
+    const sel = document.getElementById("camera-select");
+    sel.innerHTML = "";
+    (data.cameras.length ? data.cameras : [0]).forEach(idx => {
+      const opt = document.createElement("option");
+      opt.value = idx; opt.textContent = `Kamera #${idx}`;
+      sel.appendChild(opt);
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function pushSetting(partial) {
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(partial),
+  });
+}
+
+const CHART_MIN = 1, CHART_MAX = 7;
+const CHART_BANDS = [
+  { from: 1, to: 2, color: "rgba(46,125,50,0.32)" },   // zielony 1-2
+  { from: 2, to: 4, color: "rgba(249,168,37,0.28)" },  // żółty 3-4
+  { from: 4, to: 6, color: "rgba(239,108,0,0.28)" },   // pomarańczowy 5-6
+  { from: 6, to: 7, color: "rgba(198,40,40,0.32)" },   // czerwony 7
+];
+
+function drawChart() {
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const marginLeft = 20;
+  const plotW = w - marginLeft;
+  ctx.clearRect(0, 0, w, h);
+
+  const yFor = (v) => {
+    const c = Math.max(CHART_MIN, Math.min(CHART_MAX, v));
+    return h - ((c - CHART_MIN) / (CHART_MAX - CHART_MIN)) * h;
+  };
+
+  CHART_BANDS.forEach(b => {
+    const yTop = yFor(b.to);
+    const yBottom = yFor(b.from);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(marginLeft, yTop, plotW, yBottom - yTop);
+  });
+
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.fillStyle = "#9aa0ab";
+  ctx.font = "10px -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let v = CHART_MIN; v <= CHART_MAX; v++) {
+    const y = yFor(v);
+    ctx.beginPath();
+    ctx.moveTo(marginLeft, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+    ctx.fillText(String(v), marginLeft - 5, y);
+  }
+
+  if (history.length < 2) return;
+  const n = history.length;
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  history.forEach((pt, i) => {
+    const x = marginLeft + (i / (n - 1)) * plotW;
+    const y = yFor(pt.score);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+
+    const errBanner = document.getElementById("error-banner");
+    if (data.error) {
+      errBanner.style.display = "block";
+      errBanner.textContent = data.error;
+    } else {
+      errBanner.style.display = "none";
+    }
+
+    if (data.history) {
+      history = data.history;
+      drawChart();
+    }
+
+    renderAngles(data.angles);
+
+    if (data.result) {
+      const r = data.result;
+      const scoreEl = document.getElementById("score-value");
+      scoreEl.textContent = r.final_score;
+      scoreEl.style.color = r.risk_color;
+
+      const pill = document.getElementById("risk-pill");
+      pill.textContent = r.risk_label;
+      pill.style.background = r.risk_color;
+
+      const tbl = document.getElementById("breakdown");
+      tbl.innerHTML = "";
+      Object.keys(LABELS).forEach(key => {
+        const tr = document.createElement("tr");
+        const v = r.inputs[key];
+        tr.innerHTML = `<td>${LABELS[key]}</td><td>${v ?? "–"}</td>`;
+        tbl.appendChild(tr);
+      });
+      const trM = document.createElement("tr");
+      trM.innerHTML = `<td>Praca statyczna (+1)</td><td>${r.inputs.muscle ? "tak" : "nie"}</td>`;
+      tbl.appendChild(trM);
+      const trF = document.createElement("tr");
+      trF.innerHTML = `<td>Siła/obciążenie</td><td>${r.inputs.force}</td>`;
+      tbl.appendChild(trF);
+
+      document.getElementById("static-timer").textContent =
+        `Postawa statyczna: ${r.static_seconds ?? 0} s`;
+    }
+
+    if (data.settings) {
+      document.getElementById("side-select").value = data.settings.side;
+      document.getElementById("force-range").value = data.settings.force_score;
+      document.getElementById("force-label").textContent = FORCE_LABELS[data.settings.force_score];
+      document.getElementById("legs-ok").checked = data.settings.assume_legs_ok;
+      const camSel = document.getElementById("camera-select");
+      if (camSel.value !== "" && parseInt(camSel.value) !== data.settings.camera_index) {
+        camSel.value = data.settings.camera_index;
+      }
+    }
+  } catch (e) { /* ignore transient errors */ }
+}
+
+document.getElementById("camera-select").addEventListener("change", e => {
+  pushSetting({ camera_index: parseInt(e.target.value) });
+});
+document.getElementById("side-select").addEventListener("change", e => {
+  pushSetting({ side: e.target.value });
+});
+document.getElementById("force-range").addEventListener("input", e => {
+  const v = parseInt(e.target.value);
+  document.getElementById("force-label").textContent = FORCE_LABELS[v];
+  pushSetting({ force_score: v });
+});
+document.getElementById("legs-ok").addEventListener("change", e => {
+  pushSetting({ assume_legs_ok: e.target.checked });
+});
+
+loadCameras();
+setInterval(poll, 1000);
+poll();
+</script>
+</body>
+</html>

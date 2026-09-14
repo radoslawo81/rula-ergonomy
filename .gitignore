@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.pt
+*.task
+rula_log.csv
+.DS_Store
